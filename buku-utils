@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+
+import argparse
+import logging
+import pprint
+import os
+import plistlib
+import re
+import xml.parsers.expat
+
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('-i', '--input-directory')
+
+    args = parser.parse_args()
+
+    return args
+
+def main():
+    args = parse_arguments()
+
+    logger = logging.getLogger('buku-utils')
+    logger.setLevel(logging.DEBUG)
+
+    if not os.path.isdir(args.input_directory):
+        logger.error("Input directory does not exist")
+        sys.exit()
+
+    os.chdir(args.input_directory)
+
+    urls = {}
+
+    for root, dir, files in os.walk("."):
+        tags = set(root.split(os.sep)[1:])
+        for file in files:
+            basefilename, extension = os.path.splitext(file)
+            if extension == '.webloc':
+                fullfilename = os.path.join(root, file)
+
+                with open(fullfilename, 'br') as fp:
+                    try:
+                        url = plistlib.load(fp)['URL']
+                    except xml.parsers.expat.ExpatError:
+                        logger.error("Could not parse file " + fullfilename + ", using fallback method")
+                        with open(fullfilename, 'r') as xml_file_handle:
+                            xml_as_string = xml_file_handle.read()
+                            xml_file_handle.close()
+                            match = re.search(r'<string>(.*)</string>', xml_as_string, flags=re.M)
+                            url = match.group(1)
+
+                if url in urls:
+                    urls[url] |= tags
+                else:
+                    urls[url] = tags.copy()
+
+                assert len(urls[url]) < 20, url
+
+    for (url, tags) in iter(urls.items()):
+        print("Handling url " + url)
+        os.system("buku --add " + url + "".join(list(tags)))
+
+    pprint.pprint(urls, width=200)
+
+if __name__ == "__main__":
+    main()
